@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../database/database_helper.dart';
+import '../widgets/bottom_navigation.dart';
 
 class ParticipantsPage extends StatefulWidget {
   const ParticipantsPage({super.key});
@@ -8,26 +10,213 @@ class ParticipantsPage extends StatefulWidget {
 }
 
 class _ParticipantsPageState extends State<ParticipantsPage> {
-  int _selectedIndex = 2;
+  final _formKey = GlobalKey<FormState>();
+  final _nomController = TextEditingController();
+  final _prenomController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _telephoneController = TextEditingController();
+  final _adresseController = TextEditingController();
+  List<Map<String, dynamic>> _participants = [];
+  bool _isLoading = true;
+  Map<String, dynamic>? _editingParticipant;
 
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+  @override
+  void initState() {
+    super.initState();
+    _loadParticipants();
+  }
 
-    switch (index) {
-      case 0:
-        Navigator.pushReplacementNamed(context, '/home');
-        break;
-      case 1:
-        Navigator.pushReplacementNamed(context, '/formations');
-        break;
-      case 2:
-        // Already on participants page
-        break;
-      case 3:
-        Navigator.pushReplacementNamed(context, '/profile');
-        break;
+  @override
+  void dispose() {
+    _nomController.dispose();
+    _prenomController.dispose();
+    _emailController.dispose();
+    _telephoneController.dispose();
+    _adresseController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadParticipants() async {
+    setState(() => _isLoading = true);
+    try {
+      final participants = await DatabaseHelper.instance.getAllParticipants();
+      setState(() {
+        _participants = participants;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Erreur lors du chargement des participants'),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showFormDialog() {
+    _editingParticipant = null;
+    _nomController.clear();
+    _prenomController.clear();
+    _emailController.clear();
+    _telephoneController.clear();
+    _adresseController.clear();
+
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: Text(
+              _editingParticipant == null
+                  ? 'Nouveau participant'
+                  : 'Modifier le participant',
+            ),
+            content: SingleChildScrollView(
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      controller: _nomController,
+                      decoration: const InputDecoration(labelText: 'Nom'),
+                      validator:
+                          (value) =>
+                              value?.isEmpty ?? true ? 'Champ requis' : null,
+                    ),
+                    TextFormField(
+                      controller: _prenomController,
+                      decoration: const InputDecoration(labelText: 'Prénom'),
+                      validator:
+                          (value) =>
+                              value?.isEmpty ?? true ? 'Champ requis' : null,
+                    ),
+                    TextFormField(
+                      controller: _emailController,
+                      decoration: const InputDecoration(labelText: 'Email'),
+                      keyboardType: TextInputType.emailAddress,
+                      validator: (value) {
+                        if (value?.isEmpty ?? true) return 'Champ requis';
+                        if (!value!.contains('@')) return 'Email invalide';
+                        return null;
+                      },
+                    ),
+                    TextFormField(
+                      controller: _telephoneController,
+                      decoration: const InputDecoration(labelText: 'Téléphone'),
+                      keyboardType: TextInputType.phone,
+                      validator:
+                          (value) =>
+                              value?.isEmpty ?? true ? 'Champ requis' : null,
+                    ),
+                    TextFormField(
+                      controller: _adresseController,
+                      decoration: const InputDecoration(labelText: 'Adresse'),
+                      maxLines: 2,
+                      validator:
+                          (value) =>
+                              value?.isEmpty ?? true ? 'Champ requis' : null,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Annuler'),
+              ),
+              ElevatedButton(
+                onPressed: _saveParticipant,
+                child: const Text('Enregistrer'),
+              ),
+            ],
+          ),
+    );
+  }
+
+  Future<void> _saveParticipant() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    final participant = {
+      'nom': _nomController.text,
+      'prenom': _prenomController.text,
+      'email': _emailController.text,
+      'telephone': _telephoneController.text,
+      'adresse': _adresseController.text,
+    };
+
+    try {
+      if (_editingParticipant == null) {
+        await DatabaseHelper.instance.insertParticipant(participant);
+      } else {
+        participant['id'] = _editingParticipant!['id'];
+        await DatabaseHelper.instance.updateParticipant(participant);
+      }
+
+      if (mounted) {
+        Navigator.pop(context);
+        _loadParticipants();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _editingParticipant == null
+                  ? 'Participant créé avec succès'
+                  : 'Participant mis à jour avec succès',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erreur lors de l\'enregistrement')),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteParticipant(int id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Confirmer la suppression'),
+            content: const Text(
+              'Voulez-vous vraiment supprimer ce participant ?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Annuler'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text('Supprimer'),
+              ),
+            ],
+          ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await DatabaseHelper.instance.deleteParticipant(id);
+        _loadParticipants();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Participant supprimé avec succès')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Erreur lors de la suppression')),
+          );
+        }
+      }
     }
   }
 
@@ -36,117 +225,107 @@ class _ParticipantsPageState extends State<ParticipantsPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Participants'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Colors.white,
-        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {
-              // Implement search functionality
-            },
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadParticipants,
           ),
         ],
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Theme.of(context).colorScheme.primary.withOpacity(0.1),
-              Colors.white,
-            ],
-          ),
-        ),
-        child: ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: 10,
-          itemBuilder: (context, index) {
-            return _buildParticipantCard(index);
-          },
-        ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          // Add new participant
-        },
-        icon: const Icon(Icons.person_add),
-        label: const Text('Nouveau Participant'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: _onItemTapped,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Accueil',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.school_outlined),
-            selectedIcon: Icon(Icons.school),
-            label: 'Formations',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.people_outline),
-            selectedIcon: Icon(Icons.people),
-            label: 'Participants',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Profil',
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildParticipantCard(int index) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 24,
-              backgroundColor: Theme.of(
-                context,
-              ).colorScheme.primary.withOpacity(0.1),
-              child: Icon(
-                Icons.person,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Participant ${index + 1}',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+      body:
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _participants.isEmpty
+              ? const Center(child: Text('Aucun participant trouvé'))
+              : ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: _participants.length,
+                itemBuilder: (context, index) {
+                  final participant = _participants[index];
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    child: ListTile(
+                      leading: CircleAvatar(child: Text(participant['nom'][0])),
+                      title: Text(
+                        '${participant['nom']} ${participant['prenom']}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              const Icon(Icons.email, size: 16),
+                              const SizedBox(width: 4),
+                              Text(participant['email']),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              const Icon(Icons.phone, size: 16),
+                              const SizedBox(width: 4),
+                              Text(participant['telephone']),
+                            ],
+                          ),
+                        ],
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit),
+                            onPressed: () {
+                              _editingParticipant = participant;
+                              _nomController.text = participant['nom'];
+                              _prenomController.text = participant['prenom'];
+                              _emailController.text = participant['email'];
+                              _telephoneController.text =
+                                  participant['telephone'];
+                              _adresseController.text = participant['adresse'];
+                              _showFormDialog();
+                            },
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete),
+                            onPressed:
+                                () => _deleteParticipant(participant['id']),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'participant${index + 1}@email.com',
-                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+                  );
+                },
               ),
-            ),
-            Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
-          ],
-        ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showFormDialog,
+        child: const Icon(Icons.add),
+      ),
+      bottomNavigationBar: BottomNavigation(
+        currentIndex: 2,
+        onTap: (index) {
+          if (index != 2) {
+            switch (index) {
+              case 0:
+                Navigator.pushReplacementNamed(context, '/home');
+                break;
+              case 1:
+                Navigator.pushReplacementNamed(context, '/formations');
+                break;
+              case 3:
+                Navigator.pushReplacementNamed(context, '/profile');
+                break;
+            }
+          }
+        },
       ),
     );
   }

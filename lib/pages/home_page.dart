@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import '../database/database_helper.dart';
+import '../services/auth_service.dart';
+import '../widgets/bottom_navigation.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -8,13 +11,52 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  int _selectedIndex = 0;
+  int _currentIndex = 0;
+  Map<String, dynamic>? _userData;
+  int _totalFormations = 0;
+  int _totalParticipants = 0;
+  bool _isLoading = true;
 
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
 
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    try {
+      final username = await AuthService().getCurrentUser();
+      if (username != null) {
+        final userData = await DatabaseHelper.instance.getUserByUsername(
+          username,
+        );
+        final formations = await DatabaseHelper.instance.getAllFormations();
+        final participants = await DatabaseHelper.instance.getAllParticipants();
+
+        setState(() {
+          _userData = userData;
+          _totalFormations = formations.length;
+          _totalParticipants = participants.length;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Erreur lors du chargement des données'),
+          ),
+        );
+      }
+    }
+  }
+
+  void _onNavigationTap(int index) {
+    if (index == _currentIndex) return;
+
+    setState(() => _currentIndex = index);
     switch (index) {
       case 0:
         // Already on home page
@@ -35,141 +77,150 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Accueil'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Theme.of(context).colorScheme.primary.withOpacity(0.1),
-              Colors.white,
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 20),
-                  Text(
-                    'Bienvenue',
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Gérez vos formations efficacement',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodyLarge?.copyWith(color: Colors.grey[600]),
-                  ),
-                  const SizedBox(height: 32),
-                  _buildStatCard(
-                    'Formations Actives',
-                    '12',
-                    Icons.school,
-                    Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildStatCard(
-                    'Participants',
-                    '156',
-                    Icons.people,
-                    Colors.green,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildStatCard(
-                    'Formations à venir',
-                    '5',
-                    Icons.event,
-                    Colors.orange,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: _onItemTapped,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Accueil',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.school_outlined),
-            selectedIcon: Icon(Icons.school),
-            label: 'Formations',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.people_outline),
-            selectedIcon: Icon(Icons.people),
-            label: 'Participants',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Profil',
+        title: const Text('Tableau de bord'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              await AuthService().logout();
+              if (mounted) {
+                Navigator.pushReplacementNamed(context, '/');
+              }
+            },
           ),
         ],
+      ),
+      body:
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : RefreshIndicator(
+                onRefresh: _loadData,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Bienvenue, ${_userData?['username'] ?? ''}',
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Rôle: ${_userData?['role'] ?? ''}',
+                                style: Theme.of(context).textTheme.bodyLarge,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        'Statistiques',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildStatCard(
+                              'Formations',
+                              _totalFormations.toString(),
+                              Icons.school,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _buildStatCard(
+                              'Participants',
+                              _totalParticipants.toString(),
+                              Icons.people,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        'Actions rapides',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildActionCard(
+                              'Nouvelle formation',
+                              Icons.add_circle,
+                              () => Navigator.pushNamed(context, '/formations'),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _buildActionCard(
+                              'Nouveau participant',
+                              Icons.person_add,
+                              () =>
+                                  Navigator.pushNamed(context, '/participants'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+      bottomNavigationBar: BottomNavigation(
+        currentIndex: _currentIndex,
+        onTap: _onNavigationTap,
       ),
     );
   }
 
-  Widget _buildStatCard(
-    String title,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
+  Widget _buildStatCard(String title, String value, IconData icon) {
     return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
+        child: Column(
           children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: color, size: 28),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
+            Icon(icon, size: 32, color: Colors.green),
+            const SizedBox(height: 8),
+            Text(
+              value,
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                color: Colors.green,
+                fontWeight: FontWeight.bold,
               ),
             ),
+            const SizedBox(height: 4),
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionCard(String title, IconData icon, VoidCallback onTap) {
+    return Card(
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Icon(icon, size: 32, color: Colors.green),
+              const SizedBox(height: 8),
+              Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       ),
     );
